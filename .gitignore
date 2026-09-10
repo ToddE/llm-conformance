@@ -1,0 +1,18 @@
+# Secrets — never commit
+.env
+.env.local
+*.key
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Probe output. Evidence bundles are committed deliberately, not accidentally:
+# run `git add -f results/<bundle>.jsonl` when you intend to publish one.
+results/*.jsonl
+!results/.gitkeep
+
+# Cached models.dev snapshots (re-fetchable; pinned copies live in registry/)
+cache/

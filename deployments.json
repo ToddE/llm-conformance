@@ -1,0 +1,145 @@
+{
+  "_readme": [
+    "Deployment catalog. CONFIG, NOT CODE \u2014 adding a provider, model, or region",
+    "should never require editing Python.",
+    "",
+    "The split: a WIRE FORMAT is a request/response shape and needs a Python",
+    "implementation. There are only four, and new ones appear rarely. A",
+    "DEPLOYMENT is a (provider, endpoint, model, region, credential) tuple and",
+    "there are unboundedly many. Everything in that second category lives here.",
+    "",
+    "This file carries NO SECRETS and is committed deliberately: publishing the",
+    "exact deployment matrix is part of the methodology. Credentials stay in",
+    "the environment (.env locally, Vault/SSM/Secrets Manager elsewhere) and are",
+    "discovered from env_prefix \u2014 see profiles.py.",
+    "",
+    "models: an explicit list, or \"auto\" to take the most recently updated",
+    "models declaring both capabilities from the pinned models.dev snapshot.",
+    "",
+    "LOCAL RUNTIMES: entries with \"enabled\": false are templates. Flip to true",
+    "once you have confirmed the port from the app's own settings \u2014 ports below",
+    "are the documented defaults, not verified on this machine. Run",
+    "`python3 run.py discover` to see what is actually listening."
+  ],
+  "wire_formats": {
+    "_note": "Implemented in conformance/adapters/. Listed here for reference only.",
+    "openai": "POST {base}/chat/completions \u2014 response_format.json_schema, tool_choice",
+    "anthropic": "POST {base}/messages \u2014 tools[].input_schema, tool_choice.{type}",
+    "gemini": "POST {base}/models/{model}:generateContent \u2014 responseSchema, functionCallingConfig",
+    "ollama-native": "POST {base}/chat \u2014 format=<schema>, no tool_choice equivalent"
+  },
+  "providers": {
+    "openai": {
+      "wire": "openai",
+      "base_url": "https://api.openai.com/v1",
+      "env_prefix": "OPENAI",
+      "registry_id": "openai",
+      "max_tokens_field": "max_completion_tokens",
+      "models": "auto",
+      "doc": "https://platform.openai.com/docs/models"
+    },
+    "anthropic": {
+      "wire": "anthropic",
+      "base_url": "https://api.anthropic.com/v1",
+      "env_prefix": "ANTHROPIC",
+      "registry_id": "anthropic",
+      "api_version": "2023-06-01",
+      "models": "auto"
+    },
+    "google": {
+      "wire": "gemini",
+      "base_url": "https://generativelanguage.googleapis.com/v1beta",
+      "env_prefix": "GEMINI",
+      "env_fallbacks": [
+        "GOOGLE_GENERATIVE_AI_API_KEY",
+        "GOOGLE_API_KEY"
+      ],
+      "registry_id": "google",
+      "api_version": "v1beta",
+      "models": "auto"
+    },
+    "deepseek": {
+      "wire": "openai",
+      "base_url": "https://api.deepseek.com/v1",
+      "env_prefix": "DEEPSEEK",
+      "registry_id": "deepseek",
+      "max_tokens_field": "max_tokens",
+      "models": "auto",
+      "note": "Advertises OpenAI compatibility. Whether that extends to enforcement is the open question."
+    },
+    "ollama": {
+      "wire": "openai",
+      "base_url": "http://localhost:11434/v1",
+      "auth": "none",
+      "local": true,
+      "registry_id": "ollama-cloud",
+      "max_tokens_field": "max_tokens",
+      "models": "auto-local",
+      "note": "Ollama through its OpenAI-compatible shim."
+    },
+    "ollama-native": {
+      "wire": "ollama-native",
+      "base_url": "http://localhost:11434/api",
+      "auth": "none",
+      "local": true,
+      "registry_id": "ollama-cloud",
+      "models": "auto-local",
+      "note": "Same weights as 'ollama', different wire. Controlled adapter experiment for P3."
+    },
+    "lmstudio": {
+      "wire": "openai",
+      "base_url": "http://localhost:1234/v1",
+      "auth": "none",
+      "local": true,
+      "enabled": false,
+      "registry_id": "lmstudio",
+      "max_tokens_field": "max_tokens",
+      "models": "auto-local",
+      "note": "LM Studio local server. Default port 1234; confirm in Developer > Local Server."
+    },
+    "msty": {
+      "wire": "openai",
+      "base_url": "http://localhost:10000/v1",
+      "auth": "none",
+      "local": true,
+      "enabled": false,
+      "registry_id": "msty",
+      "max_tokens_field": "max_tokens",
+      "models": "auto-local",
+      "note": "Msty Studio local service. PORT UNVERIFIED \u2014 check Msty's local API settings and correct base_url before enabling."
+    },
+    "llamacpp": {
+      "wire": "openai",
+      "base_url": "http://localhost:8080/v1",
+      "auth": "none",
+      "local": true,
+      "enabled": false,
+      "registry_id": "llamacpp",
+      "max_tokens_field": "max_tokens",
+      "models": "auto-local",
+      "note": "llama.cpp llama-server. Thin OpenAI shim \u2014 a good adversarial test of compatibility claims."
+    },
+    "vllm": {
+      "wire": "openai",
+      "base_url": "http://localhost:8000/v1",
+      "auth": "none",
+      "local": true,
+      "enabled": false,
+      "registry_id": "vllm",
+      "max_tokens_field": "max_tokens",
+      "models": "auto-local",
+      "note": "vLLM OpenAI server. The realistic on-prem/air-gapped enterprise target."
+    },
+    "jan": {
+      "wire": "openai",
+      "base_url": "http://localhost:1337/v1",
+      "auth": "none",
+      "local": true,
+      "enabled": false,
+      "registry_id": "jan",
+      "max_tokens_field": "max_tokens",
+      "models": "auto-local",
+      "note": "Jan local server."
+    }
+  }
+}
