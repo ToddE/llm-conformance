@@ -1,27 +1,23 @@
-# LLM Conformance
+## Capabilities
 
-Measure what an AI deployment can actually do.
+LLM Conformance tests whether an AI deployment can satisfy specific
+capability requirements—not merely whether a provider claims to support a
+feature.
 
-AI providers often describe capabilities with simple labels:
+Initial capabilities include:
 
-- Structured output: supported.
-- Tool calling: supported.
-- JSON Schema: supported.
-- OpenAI-compatible: supported.
+- Structured JSON output.
+- Required tool calling.
+- Schema and argument conformance.
+- Deployment-specific behavior across providers, endpoints, and adapters.
 
-In practice, support is more complicated. Behavior can differ by provider,
-endpoint, model version, region, API version, adapter, and request parameters.
+Capability support is not treated as a simple true/false value. A deployment
+may support a capability fully, partially, inconsistently, honestly reject it,
+or be unable to express a requested constraint.
 
-An endpoint may:
+See [Capabilities.md](Capabilities.md) for the capability model, probe
+definitions, result classifications, and current coverage.
 
-- Reject an unsupported request clearly.
-- Accept and correctly enforce the requested constraint.
-- Accept the request but silently ignore part of it.
-- Be unable to express the constraint in its API dialect.
-- Behave correctly for some schemas or tools but not others.
-
-LLM Conformance tests these behaviors against real deployments and records
-the evidence.
 
 ## Project status: Early experimental research. 
 The project has no external users yet and is
