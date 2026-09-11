@@ -1,4 +1,4 @@
-"""models.dev — the declared side of the comparison.
+"""models.dev, the declared side of the comparison.
 
 We pin a local snapshot rather than fetching live on every run. The registry
 changes; a finding that says "declared true, observed false" is meaningless

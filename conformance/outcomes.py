@@ -243,3 +243,46 @@ def conformance_class(outcome: str) -> str:
     if outcome in HONEST_FAILURE:
         return CONF_HONEST
     return CONF_INCONCLUSIVE
+
+
+# ── Cell verdict: does a deployment+capability behave the SAME WAY every ─────
+#    time, or does it depend on the draw?
+#
+# A single trial's conformance_class() says what happened once. It says
+# nothing about whether that trial was representative. Capabilities.md
+# specifies a fifth classification for exactly this: repeated trials
+# producing materially different results under the same recorded conditions.
+# "4 of 5 trials conformed, 1 of 5 violated the schema" must not be reported
+# as either a clean pass or a clean silent failure -- both readings are
+# wrong, and an inconsistent result must not be treated as strict support.
+#
+# This lives here rather than as a sixth value alongside PASS/FAIL_VIOLATED/
+# etc. in the outcome enum, because it isn't a property of one trial. It's an
+# aggregate over a cell's trials, computed after the fact -- the same
+# relationship conformance_class() already has to a raw outcome string.
+
+CELL_INCONSISTENT = "inconsistent"
+
+
+def cell_verdict(conformance_classes: list[str]) -> str:
+    """Aggregate one deployment+capability cell's CONCLUSIVE-trial
+    conformance classes into a single cell-level verdict.
+
+    Pass conformance_class(r["outcome"]) for every trial in the cell whose
+    outcome is not in INCONCLUSIVE -- inconclusive trials (a timeout, a
+    missing credential) carry no signal about the endpoint's behavior and
+    must never count toward "did this behave consistently."
+
+    Every trial agreeing returns that single class -- an all-PASS cell's
+    verdict is CONF_HONORED, an all-silent cell's verdict is CONF_SILENT, and
+    so on; nothing changes for the common case where a deployment behaves the
+    same way every time it is probed. Only a genuine split returns
+    CELL_INCONSISTENT. Zero conclusive trials returns CONF_INCONCLUSIVE,
+    matching how a cell with no signal at all is treated everywhere else.
+    """
+    distinct = set(conformance_classes)
+    if not distinct:
+        return CONF_INCONCLUSIVE
+    if len(distinct) == 1:
+        return next(iter(distinct))
+    return CELL_INCONSISTENT

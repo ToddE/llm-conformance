@@ -15,8 +15,8 @@ from .http import post_json
 from .probes.definitions import ALL_PROBES
 from .registry import Registry
 
-# Built from deployments.json at import time -- adding a provider is a config
-# change, not a code change. Keys name a DEPLOYMENT SURFACE, not just a vendor:
+# Built from deployments.toml at import time -- adding a provider is a config
+# change, not a code change. Keys name a DEPLOYMENT SURFACE rather than a vendor:
 # ollama appears twice because the same model over two wire formats is two
 # deployments, and telling them apart is the point.
 ADAPTERS: dict[str, type[Adapter]]
@@ -110,9 +110,10 @@ def local_model_details(surface: str, model: str) -> dict[str, str | None]:
 def make_deployment(surface: str, model: str,
                     profile: Profile | None = None) -> Deployment:
     cls = ADAPTERS[surface]
-    adapter_id = getattr(cls, "adapter_id", None) or (
-        "openai-compatible" if issubclass(cls, OpenAIAdapter) else cls.name
-    )
+    # catalog.adapter_class() always sets adapter_id, so this is never None in
+    # practice; the fallback exists only so a class built outside the catalog
+    # (a test double, say) still gets a sane label instead of a crash.
+    adapter_id = getattr(cls, "adapter_id", None) or cls.name
     cfg = PROVIDER_CONFIGS.get(surface)
     api_version = cfg.api_version if cfg else None
     endpoint = cls.base_url

@@ -8,12 +8,18 @@ every new region costs a code change and a review.
 So they are separated:
 
     wire format  -> Python. A request/response shape. Four of them today.
-    deployment   -> deployments.json + env. Unbounded, config only.
+    deployment   -> deployments.toml + env. Unbounded, config only.
 
-Adding a provider that speaks an existing wire is a JSON block and a
+Adding a provider that speaks an existing wire is a TOML block and a
 credential. No Python, no release. Adding a genuinely new wire format is the
 only thing that needs code -- and that is irreducible, because a new shape
 means new serialization and new response parsing.
+
+TOML rather than YAML: `tomllib` has been in the standard library since
+Python 3.11, read-only, no install. YAML would need either a `pyyaml`
+dependency or a hand-rolled parser for a notoriously large spec, which breaks
+the "clone and run, nothing to install" guarantee this project is built
+around. TOML supports comments, which was the actual gap JSON had.
 
 Credentials never appear here. The catalog is committed on purpose (publishing
 the deployment matrix is part of the methodology); secrets are discovered from
@@ -23,8 +29,8 @@ Vault/SSM/Secrets Manager elsewhere.
 
 from __future__ import annotations
 
-import json
 import os
+import tomllib
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -35,11 +41,13 @@ from .adapters.ollama import OllamaNativeAdapter
 from .adapters.openai_compatible import OpenAICompatibleAdapter
 
 CATALOG_PATH = os.path.join(
-    os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "deployments.json"
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "deployments.toml"
 )
 
+SUPPORTED_CONFIG_VERSION = 1
+
 # The only thing that requires Python. Keys here are the `wire` values allowed
-# in deployments.json.
+# in deployments.toml.
 WIRE_FORMATS: dict[str, type[Adapter]] = {
     "openai": OpenAICompatibleAdapter,
     "anthropic": AnthropicAdapter,
@@ -83,13 +91,23 @@ class ProviderConfig:
 
 
 def load(path: str = CATALOG_PATH) -> dict[str, ProviderConfig]:
-    with open(path, encoding="utf-8") as fh:
-        raw = json.load(fh)
+    with open(path, "rb") as fh:
+        raw = tomllib.load(fh)
+
+    version = raw.get("config_version")
+    if version != SUPPORTED_CONFIG_VERSION:
+        raise CatalogError(
+            f"{path}: config_version={version!r}, this harness understands "
+            f"{SUPPORTED_CONFIG_VERSION}. A bare 'version' field is deliberately "
+            f"not accepted -- it is ambiguous between a schema version and a "
+            f"catalog revision."
+        )
 
     providers: dict[str, ProviderConfig] = {}
-    for pid, entry in (raw.get("providers") or {}).items():
-        if pid.startswith("_"):
-            continue
+    for entry in raw.get("providers") or []:
+        pid = entry.get("id")
+        if not pid:
+            raise CatalogError(f"{path}: provider entry missing 'id': {entry!r}")
         wire = entry.get("wire")
         if wire not in WIRE_FORMATS:
             raise CatalogError(

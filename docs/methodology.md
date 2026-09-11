@@ -1,4 +1,15 @@
+---
+title: Methodology
+nav_order: 3
+---
+
 # Methodology
+{: .no_toc }
+
+1. TOC
+{:toc}
+
+---
 
 This document exists so a finding can be disputed on its merits. If a provider
 disagrees with a result, everything needed to argue about it is here or in the

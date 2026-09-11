@@ -1,0 +1,178 @@
+# Deployment catalog. CONFIG, NOT CODE.
+#
+# Adding a provider, model, or region should never require editing Python.
+# See README.md "Adding a provider" and conformance/catalog.py.
+#
+# The split: a WIRE FORMAT is a request/response shape and needs a Python
+# adapter in conformance/adapters/. There are four today and they grow rarely.
+# A DEPLOYMENT is a (provider, endpoint, model, region, credential) tuple and
+# there are unboundedly many -- everything in that category lives here.
+#
+# This file carries NO SECRETS and is committed deliberately: publishing the
+# exact deployment matrix is part of the methodology. Credentials stay in the
+# environment (.env locally, Vault/SSM/Secrets Manager elsewhere) and are
+# discovered from env_prefix.
+#
+# models = "auto" takes the most recently updated models declaring both
+# capabilities from the pinned models.dev snapshot. models = "auto-local"
+# asks a local runtime what it actually has loaded.
+
+config_version = 1
+
+[wire_formats]
+# Implemented in conformance/adapters/. Listed here for reference only -- this
+# table's KEYS are also the complete set of legal `wire` values below. An
+# unknown `wire` fails to load with a message naming it and this list.
+openai = "POST {base}/chat/completions -- response_format.json_schema, tool_choice"
+anthropic = "POST {base}/messages -- tools[].input_schema, tool_choice.{type}"
+gemini = "POST {base}/models/{model}:generateContent -- responseSchema, functionCallingConfig"
+ollama-native = "POST {base}/chat -- format=<schema>, no tool_choice equivalent"
+
+# Full field reference: CONFIG.md. Quick version, for the accepted values that
+# aren't just "a string":
+#
+#   wire      one of the four keys in [wire_formats] above
+#   auth      unset, or "none" for an unauthenticated local surface
+#   local     true | false (default false) -- no credential required, scanned
+#             by `run.py discover`
+#   enabled   true | false (default true) -- false keeps the block as a
+#             template; `run.py probe` skips it unless named explicitly
+#   models    "auto" (pull from the pinned models.dev snapshot, default) |
+#             "auto-local" (ask the running local server what it has loaded) |
+#             an explicit array of model id strings
+
+[[providers]]
+id = "openai"
+wire = "openai"
+base_url = "https://api.openai.com/v1"
+env_prefix = "OPENAI"
+registry_id = "openai"
+max_tokens_field = "max_completion_tokens"
+models = "auto"
+doc = "https://platform.openai.com/docs/models"
+
+[[providers]]
+id = "anthropic"
+wire = "anthropic"
+base_url = "https://api.anthropic.com/v1"
+env_prefix = "ANTHROPIC"
+registry_id = "anthropic"
+api_version = "2023-06-01"
+models = "auto"
+
+doc = "https://docs.anthropic.com/en/api/models-list"
+[[providers]]
+id = "google"
+wire = "gemini"
+base_url = "https://generativelanguage.googleapis.com/v1beta"
+env_prefix = "GEMINI"
+env_fallbacks = ["GOOGLE_GENERATIVE_AI_API_KEY", "GOOGLE_API_KEY"]
+registry_id = "google"
+api_version = "v1beta"
+models = "auto"
+
+doc = "https://ai.google.dev/gemini-api/docs/models"
+[[providers]]
+id = "deepseek"
+wire = "openai"
+base_url = "https://api.deepseek.com/v1"
+env_prefix = "DEEPSEEK"
+registry_id = "deepseek"
+max_tokens_field = "max_tokens"
+models = "auto"
+note = "Advertises OpenAI compatibility. Whether that extends to enforcement is the open question."
+
+doc = "https://api-docs.deepseek.com/"
+[[providers]]
+id = "ollama"
+wire = "openai"
+base_url = "http://localhost:11434/v1"
+auth = "none"
+local = true
+registry_id = "ollama-cloud"
+max_tokens_field = "max_tokens"
+models = "auto-local"
+note = "Ollama through its OpenAI-compatible shim."
+
+doc = "https://github.com/ollama/ollama/blob/main/docs/openai.md"
+[[providers]]
+id = "ollama-native"
+wire = "ollama-native"
+base_url = "http://localhost:11434/api"
+auth = "none"
+local = true
+registry_id = "ollama-cloud"
+models = "auto-local"
+note = "Same weights as 'ollama', different wire. Controlled adapter experiment for P3."
+
+# Local runtimes below are templates. Confirm the port in the app's own
+# settings before setting enabled = true -- these defaults are documented
+# values, not verified on any particular machine. Run
+# `python3 run.py discover` to see what is actually listening.
+
+doc = "https://github.com/ollama/ollama/blob/main/docs/api.md"
+[[providers]]
+id = "lmstudio"
+wire = "openai"
+base_url = "http://localhost:1234/v1"
+auth = "none"
+local = true
+enabled = false
+registry_id = "lmstudio"
+max_tokens_field = "max_tokens"
+models = "auto-local"
+note = "LM Studio local server. Default port 1234; confirm in Developer > Local Server."
+
+doc = "https://lmstudio.ai/docs/local-server"
+[[providers]]
+id = "msty"
+wire = "openai"
+base_url = "http://localhost:10000/v1"
+auth = "none"
+local = true
+enabled = false
+registry_id = "msty"
+max_tokens_field = "max_tokens"
+models = "auto-local"
+note = "Msty Studio local service. PORT UNVERIFIED -- check Msty's local API settings before enabling."
+
+doc = "https://docs.msty.studio/"
+[[providers]]
+id = "llamacpp"
+wire = "openai"
+base_url = "http://localhost:8080/v1"
+auth = "none"
+local = true
+enabled = false
+registry_id = "llamacpp"
+max_tokens_field = "max_tokens"
+models = "auto-local"
+note = "llama.cpp llama-server. A thin OpenAI shim, good adversarial test of compatibility claims."
+
+doc = "https://github.com/ggml-org/llama.cpp/tree/master/tools/server"
+[[providers]]
+id = "vllm"
+wire = "openai"
+base_url = "http://localhost:8000/v1"
+auth = "none"
+local = true
+enabled = false
+registry_id = "vllm"
+max_tokens_field = "max_tokens"
+models = "auto-local"
+note = "vLLM OpenAI server. The realistic on-prem/air-gapped enterprise target."
+
+doc = "https://docs.vllm.ai/en/latest/serving/openai_compatible_server.html"
+[[providers]]
+id = "jan"
+wire = "openai"
+base_url = "http://localhost:1337/v1"
+auth = "none"
+local = true
+enabled = false
+registry_id = "jan"
+max_tokens_field = "max_tokens"
+models = "auto-local"
+note = "Jan local server."
+
+doc = "https://jan.ai/docs/local-api"

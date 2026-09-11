@@ -47,7 +47,7 @@ def main() -> int:
     try:
         src = open(".env", encoding="utf-8").read()
     except FileNotFoundError:
-        print("no .env — nothing to sync")
+        print("no .env, nothing to sync")
         return 0
 
     generated = strip_values(src)
@@ -80,7 +80,7 @@ def main() -> int:
 
     open(".env.example", "w", encoding="utf-8").write(generated)
     n = sum(1 for l in src.splitlines() if (m := VALUE_LINE.match(l)) and m.group(3).strip())
-    print(f"wrote .env.example — {n} value(s) stripped")
+    print(f"wrote .env.example, {n} value(s) stripped")
     return 0
 
 

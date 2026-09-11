@@ -1,4 +1,4 @@
-# Secrets — never commit
+# Secrets, never commit
 .env
 .env.local
 *.key
@@ -9,10 +9,20 @@ __pycache__/
 .venv/
 venv/
 
-# Probe output. Evidence bundles are committed deliberately, not accidentally:
-# run `git add -f results/<bundle>.jsonl` when you intend to publish one.
+# Legacy flat probe output (pre-runbundle). Kept for historical runs already
+# on disk. Committed deliberately, not accidentally: run
+# `git add -f results/<bundle>.jsonl` when you intend to publish one.
 results/*.jsonl
 !results/.gitkeep
 
+# Local-first run bundles. Each is self-verifying (manifest.json hashes every
+# artifact), so these are working output, not something to hand-curate in git.
+# Publish a specific run deliberately with `git add -f runs/<date>/<run_id>`.
+# Trailing slash: matches only the dated subdirectories, never the .gitkeep
+# file sitting directly in runs/.
+runs/*/
+
 # Cached models.dev snapshots (re-fetchable; pinned copies live in registry/)
 cache/
+
+docs/Thesis.md

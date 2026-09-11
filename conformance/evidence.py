@@ -11,7 +11,7 @@ Design notes:
   provider SDKs -- an SDK can silently rewrite a payload, and then the
   "exact request payload" in the record is a lie.
 
-* We record response HEADERS, not just the body. Provider request-ids
+* We record response HEADERS in addition to the body. Provider request-ids
   (x-request-id, request-id, x-goog-request-id) are what lets a provider
   look up our call in THEIR logs. A finding a provider can audit is a
   finding they can concede; one they can't is one they'll dismiss.

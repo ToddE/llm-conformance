@@ -1,0 +1,42 @@
+title: llm-conformance
+description: >-
+  Does an LLM deployment actually honor the capabilities it declares?
+  A stdlib-only Python harness that probes structured output and forced
+  tool calling against direct APIs and local runtimes, and compares
+  observed behavior to what the model registry declares.
+baseurl: "/llm-conformance"
+url: "https://ToddE.github.io"
+
+remote_theme: just-the-docs/just-the-docs
+plugins:
+  - jekyll-remote-theme
+  - jekyll-seo-tag
+
+search_enabled: true
+heading_anchors: true
+nav_sort: case_sensitive
+
+aux_links:
+  "GitHub":
+    - "https://github.com/ToddE/llm-conformance"
+
+footer_content: >-
+  Zero dependencies. Standard library only. Every finding on this site
+  ships with the exact request payload, raw response, and a runnable
+  reproduction command.
+
+callouts:
+  warning:
+    title: Known gap
+    color: yellow
+  important:
+    title: Important
+    color: blue
+
+# Jekyll copies every file under this directory into the built site by
+# default, front matter or not. Thesis.md is deliberately excluded here: it
+# was excluded from the public site (see docs/validation-approach.md for the
+# derived, public-safe version) precisely because omitting front matter alone
+# does NOT keep a file out of the build.
+exclude:
+  - Thesis.md

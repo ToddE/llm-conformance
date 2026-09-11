@@ -1,8 +1,8 @@
 ## Capabilities
 
 LLM Conformance tests whether an AI deployment can satisfy specific
-capability requirements—not merely whether a provider claims to support a
-feature.
+capability requirements. A provider claiming to support a feature is a
+separate question.
 
 Initial capabilities include:
 
@@ -47,7 +47,7 @@ API versions, proxies, or local runtimes.
 
 An API may return HTTP 200 and valid JSON while still failing to honor the
 actual requirement. That makes a syntactically successful response
-semantically incorrect—and difficult to detect in production.
+semantically incorrect, and difficult to detect in production.
 
 LLM Conformance is intended to make those differences measurable and
 reproducible.
@@ -122,55 +122,116 @@ the requirement was honored.
 
 ## Quick start
 
+No install step. Standard library only.
+
 ```bash
-git clone [https://github.com/ToddE/llm-conformance.git](https://github.com/ToddE/llm-conformance.git)
+git clone https://github.com/ToddE/llm-conformance.git
 cd llm-conformance
 
-python -m venv .venv
-source .venv/bin/activate
-pip install -e .
-
 cp .env.example .env
-# Add provider credentials to .env
+# add provider credentials to .env
 
-llm-conform probe --config deployments.yaml
+python3 run.py doctor     # what can be probed right now
+python3 run.py probe      # probe everything reachable
 ```
 
-The exact commands may change while the project is experimental.
+`run.py probe` writes a complete local run bundle first, then publishes to any
+remote destination configured in `outputs.toml`. If a remote publish fails,
+the local bundle is already valid. Retry it without re-probing:
+
+```bash
+python3 run.py publish runs/2026-09-11/run_20260911T015009Z_e045f4e9
+```
 
 ## Configuration
 
-Deployment configuration is written in YAML because it is easier for people to
-read and edit:
+Deployment configuration is written in TOML in `deployments.toml`. TOML over
+YAML because `tomllib` has been in the Python standard library since 3.11 and
+reads without installing anything; YAML would need an external parser.
 
-```yaml
-deployments:
-  - id: openai-direct
-    provider: openai
-    endpoint: [https://api.openai.com/v1](https://api.openai.com/v1)
-    model: example-model
-    adapter: native
-    region: global
-    api_version: latest
-    credentials:
-      api_key_env: OPENAI_API_KEY
+See [CONFIG.md](CONFIG.md) for the complete field reference for both
+`deployments.toml` and `outputs.toml`, including every accepted value for
+fields like `wire`, `models`, `type`, `visibility`, and `artifacts`. Every
+field with a fixed set of legal values is validated at load time and names
+the full set in its error message, so a typo fails immediately rather than
+silently doing less than configured.
 
-  - id: local-ollama
-    provider: ollama
-    endpoint: http://localhost:11434
-    model: example-model
-    adapter: native
-    region: local
-    credentials: {}
+```toml
+config_version = 1
+
+[[providers]]
+id = "openai"
+wire = "openai"
+base_url = "https://api.openai.com/v1"
+env_prefix = "OPENAI"
+models = "auto"
+
+[[providers]]
+id = "ollama"
+wire = "openai"
+base_url = "http://localhost:11434/v1"
+auth = "none"
+local = true
+models = "auto-local"
 ```
 
-Credentials are referenced by environment-variable name and are never stored
-in this file.
+Credentials are referenced by environment-variable name and never stored in
+this file. Adding a provider that speaks an existing wire format is a block
+in this file, not a code change. See "Adding a provider" below.
+
+Output destinations (local disk, S3-compatible storage) are configured
+separately in `outputs.toml`, since where results go and what gets probed vary
+independently. A run always writes to local disk first. Publishing to a
+remote destination is a second step that reads the completed local bundle and
+never triggers a new probe.
+
+```toml
+config_version = 1
+
+[run]
+output_dir = "./runs"
+
+[[outputs]]
+id = "local"
+type = "filesystem"
+required = true
+path = "./runs"
+artifacts = ["manifest", "summary", "results", "report", "raw_evidence"]
+
+[[outputs]]
+id = "r2"
+type = "s3"
+enabled = false
+bucket_env = "S3_BUCKET"
+access_key_id_env = "S3_ACCESS_KEY_ID"
+secret_access_key_env = "S3_SECRET_ACCESS_KEY"
+artifacts = ["manifest", "summary", "results", "report"]
+```
+
+`type = "s3"` speaks the standard S3 REST API with hand-rolled AWS SigV4
+signing over `urllib` and `hmac`, no `boto3` dependency. AWS S3, Cloudflare
+R2, and MinIO all implement the same API, so one destination type covers all
+three. Credentials come from the environment variables named in `outputs.toml`,
+never from the file itself.
 
 ## Evidence and reproducibility
 
-Probe results record the deployment identity, probe version, timestamp, trial
-number, request metadata, response metadata, and validation result.
+A run produces an immutable directory:
+
+```
+runs/2026-09-11/run_20260911T015009Z_e045f4e9/
+  manifest.json      sha256 of every other artifact
+  summary.json        aggregate counts
+  results.jsonl        one line per trial, append-only
+  report.md            the rendered report
+  evidence/
+    trial-0001.json    the same record as one results.jsonl line
+    trial-0002.json
+```
+
+The manifest lets anyone re-hash the bundle and confirm nothing changed after
+the run. `python3 run.py publish <run_dir>` checks this before publishing and
+warns if the bundle no longer matches its own manifest.
 
 Raw prompts and responses may contain sensitive information. Do not commit
 credentials, private endpoint details, or unsanitized production responses.

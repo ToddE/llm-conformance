@@ -284,3 +284,15 @@ def summary_dict(results: list[dict[str, Any]]) -> dict[str, Any]:
         "cell_level_silent": sum(1 for v in cell_state.values() if O.CONF_SILENT in v),
         "trials_with_no_registry_row": sum(1 for r in conclusive if r["declared"] is None),
     }
+
+
+def render_markdown(results: list[dict[str, Any]], run_id: str = "") -> str:
+    """report.md content. Wraps the terminal report (which already carries
+    the actual analytical structure) in a Markdown document rather than
+    reimplementing it as a second, divergent renderer -- one source of the
+    numbers, two presentations of it."""
+    header = "# Conformance Report\n\n"
+    if run_id:
+        header += f"Run: `{run_id}`\n\n"
+    body = render(results, color=False)
+    return header + "```text\n" + body + "\n```\n"

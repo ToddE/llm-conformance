@@ -1,0 +1,58 @@
+# Output destinations: where a run's evidence goes, separate from what gets
+# probed (deployments.toml). See CONFIG.md for the full field reference.
+#
+# A run always writes locally first, in full, before attempting any remote
+# publish. If a remote destination fails, the local run is already complete
+# and valid: publishing again later is a retry, never a re-probe.
+#
+# Credentials are environment-variable NAMES only. Never a literal key here,
+# never in a report, never in a manifest, never in git history.
+
+config_version = 1
+
+[run]
+output_dir = "./runs"
+hash_algorithm = "sha256"      # informational; the manifest always uses sha256
+
+[[outputs]]
+id = "local"
+type = "filesystem"            # "filesystem" | "s3"
+required = true                # a required destination that fails counts as a run failure
+visibility = "private"         # "private" | "public" -- see below
+path = "./runs"
+
+# artifacts: which files this destination receives. One or more of:
+#   "manifest"      manifest.json     -- sha256 of every other artifact
+#   "summary"       summary.json      -- aggregate counts
+#   "results"       results.jsonl     -- full evidence stream, one line per trial
+#   "report"        report.md         -- the rendered report
+#   "raw_evidence"  evidence/*.json   -- results.jsonl exploded, one file per trial
+# "all" is shorthand for every value above. Unknown names fail to load rather
+# than silently publishing nothing for them.
+artifacts = ["all"]
+
+# visibility = "public" enforces a hard safety rail at load time: "results"
+# and "raw_evidence" BOTH carry full request/response bodies (results.jsonl
+# embeds the same record raw_evidence splits one-per-file), so a public
+# destination is only permitted "manifest", "summary", "report" -- listing
+# "results" or "raw_evidence" under visibility = "public" fails to load
+# rather than publishing sensitive payloads somewhere world-readable by a
+# one-line mistake.
+
+# Example S3-compatible remote destination. AWS S3, Cloudflare R2, and MinIO
+# all speak the same signed REST API, so one destination type covers all
+# three -- see conformance/storage.py. Disabled until credentials and a
+# bucket exist; flip enabled = true when they do.
+[[outputs]]
+id = "r2"
+type = "s3"
+enabled = false
+required = false
+visibility = "private"
+endpoint_env = "S3_ENDPOINT"
+region_env = "S3_REGION"
+bucket_env = "S3_BUCKET"
+access_key_id_env = "S3_ACCESS_KEY_ID"
+secret_access_key_env = "S3_SECRET_ACCESS_KEY"
+prefix = "llm-conformance/"
+artifacts = ["manifest", "summary", "results", "report"]

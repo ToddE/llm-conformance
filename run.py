@@ -3,10 +3,11 @@
 
 Zero dependencies. Standard library only.
 
-    python3 run.py probe                  # probe everything you have keys for
+    python3 run.py probe                       # probe everything reachable
     python3 run.py probe --provider openai --models gpt-5.6
-    python3 run.py report results/<run>.jsonl
-    python3 run.py doctor                 # what can I probe right now?
+    python3 run.py publish runs/<date>/<run_id>  # retry a remote publish
+    python3 run.py report runs/<date>/<run_id>/results.jsonl
+    python3 run.py doctor                      # what can be probed right now
 """
 
 from __future__ import annotations
@@ -18,12 +19,15 @@ import sys
 
 from conformance import credentials as cred
 from conformance import outcomes as O
-from conformance.evidence import EvidenceWriter, new_run_id
+from conformance import outputs_config
+from conformance.evidence import new_run_id
 from conformance.registry import Registry, snapshot_meta
-from conformance.report import load_results, render, summary_dict
+from conformance.report import load_results, render, render_markdown, summary_dict
+from conformance.runbundle import RunBundle, load_bundle, open_bundle, verify_manifest
 from conformance.runner import (ADAPTERS, DEFAULT_TRIALS, LOCAL_SURFACES,
                                 load_dotenv, make_deployment, profiles_for,
                                 resolve_key, run_all)
+from conformance.storage import build_destinations
 
 CAPABILITIES = ["structured_output", "tool_calling"]
 
@@ -112,13 +116,15 @@ def cmd_discover(args) -> int:
             dead.append((pid, cfg))
 
     for pid, cfg, url in live:
-        flag = "" if cfg.enabled else "   <- set \"enabled\": true in deployments.json"
+        flag = "" if cfg.enabled else "   <- set enabled = true in deployments.toml"
         print(f"  LIVE      {pid:<14} {cfg.base_url}{flag}")
     for pid, cfg in dead:
         state = "enabled" if cfg.enabled else "template"
         print(f"  offline   {pid:<14} {cfg.base_url}   ({state})")
+        if cfg.doc:
+            print(f"                          docs: {cfg.doc}")
 
-    print("\nAdding a local runtime is a deployments.json block — no Python —")
+    print("\nAdding a local runtime is a deployments.toml block, no Python -")
     print("as long as it speaks a known wire (openai / anthropic / gemini /")
     print("ollama-native). Confirm the port in the app's own settings first;")
     print("the defaults in the catalog are documented values, not verified.")
@@ -191,7 +197,8 @@ def cmd_probe(args) -> int:
     planned = len(plan) * len(capabilities) * args.trials
 
     run_id = new_run_id()
-    out_path = os.path.join(RESULTS_DIR, f"{run_id}.jsonl")
+    out_cfg = outputs_config.load()
+    output_dir = out_cfg.get("run", {}).get("output_dir", "./runs")
 
     env_vars2: list[str] = []
     for surface in surfaces:
@@ -201,7 +208,7 @@ def cmd_probe(args) -> int:
             print(f"  WARNING: {st.message()}")
 
     print(f"\nrun: {run_id}")
-    print(f"planned probes: {planned}   evidence -> {out_path}\n")
+    print(f"planned probes: {planned}   output_dir: {output_dir}\n")
 
     if args.dry_run:
         for surface, model, prof in plan:
@@ -226,15 +233,95 @@ def cmd_probe(args) -> int:
         print(f"  [{mark}] {r.provider}/{r.model_requested} via {r.deployment['adapter']} "
               f"{r.capability} t{r.trial_index}: {r.outcome}", flush=True)
 
-    with EvidenceWriter(out_path) as writer:
-        results = run_all(run_id, plan, registry, env, writer, capabilities,
+    # Local-first: the bundle is written to disk in full BEFORE any remote
+    # publish is attempted. run_all() writes through bundle.write(), the same
+    # fsync-per-line guarantee the old flat writer had -- a crash mid-run
+    # loses nothing already probed.
+    bundle = open_bundle(run_id, output_dir)
+    try:
+        results = run_all(run_id, plan, registry, env, bundle, capabilities,
                           args.trials, progress)
+    finally:
+        bundle.close_results()
 
     rows = [json.loads(r.to_json()) for r in results]
+    summary = summary_dict(rows)
+    bundle.write_summary(summary)
+    bundle.write_report(render_markdown(rows, run_id))
+    manifest = bundle.write_manifest()
+
     print(render(rows, color=sys.stdout.isatty()))
-    print(f"evidence: {out_path}")
-    print(f"summary : {json.dumps(summary_dict(rows))}\n")
+    print(f"local bundle : {bundle.run_dir}")
+    print(f"manifest     : {len(manifest['artifacts'])} artifact(s) hashed")
+    print(f"summary      : {json.dumps(summary)}\n")
+
+    if not args.no_publish:
+        _publish(bundle, out_cfg, only=None)
+    else:
+        print("(--no-publish: skipping remote destinations; "
+              f"run `python3 run.py publish {bundle.run_dir}` later)")
     return 0
+
+
+def _publish(bundle: RunBundle, out_cfg: dict, only: list[str] | None) -> int:
+    from conformance.storage import PublishError
+
+    destinations = build_destinations(out_cfg)
+    if only:
+        destinations = [d for d in destinations if d.id in only]
+    remote = [d for d in destinations if d.__class__.__name__ != "FilesystemOutput"]
+    if not remote:
+        return 0
+
+    print("publish:")
+    failures = 0
+    for dest in remote:
+        ok, reason = dest.available()
+        if not ok:
+            print(f"  [skip] {dest.id}: {reason}"
+                  + ("  (REQUIRED -- treat this as a failed run)" if dest.required else ""))
+            if dest.required:
+                failures += 1
+            continue
+        try:
+            result = dest.publish(bundle)
+        except PublishError as exc:
+            print(f"  [FAIL] {dest.id}: {exc}")
+            failures += 1
+            continue
+        flag = "ok" if result.ok else "skip"
+        print(f"  [{flag}]  {dest.id}: {result.detail}")
+        if not result.ok and dest.required:
+            failures += 1
+
+    if failures:
+        print(f"\n{failures} required destination(s) failed. The local bundle "
+              f"is still complete and valid -- retry with:")
+        print(f"  python3 run.py publish {bundle.run_dir}")
+    return failures
+
+
+def cmd_publish(args) -> int:
+    """Publish an already-completed local run to configured remote
+    destinations. Never re-probes -- this operates only on what is already on
+    disk, which is the entire point of writing locally first."""
+    try:
+        bundle = load_bundle(args.run_dir)
+    except FileNotFoundError as exc:
+        print(str(exc), file=sys.stderr)
+        return 2
+
+    problems = verify_manifest(args.run_dir)
+    if problems:
+        print(f"WARNING: {args.run_dir} does not match its own manifest:")
+        for p in problems:
+            print(f"  {p}")
+        print("Publishing anyway, but this bundle may have been edited "
+              "after it was written.\n")
+
+    out_cfg = outputs_config.load()
+    failures = _publish(bundle, out_cfg, only=args.output)
+    return 1 if failures else 0
 
 
 def cmd_readjudicate(args) -> int:
@@ -290,7 +377,18 @@ def main() -> int:
                         "single-shot results are inadmissible for response-level outcomes")
     p.add_argument("--refresh", action="store_true", help="re-fetch models.dev snapshot")
     p.add_argument("--dry-run", action="store_true", help="print the plan, send nothing")
+    p.add_argument("--no-publish", action="store_true",
+                   help="write the local bundle only; skip remote destinations "
+                        "(publish later with `run.py publish <run_dir>`)")
     p.set_defaults(func=cmd_probe)
+
+    pub = sub.add_parser("publish",
+                         help="publish an existing local run to remote destinations "
+                              "(never re-probes)")
+    pub.add_argument("run_dir", help="path to a run directory, e.g. runs/2026-09-10/run_...")
+    pub.add_argument("--output", action="append",
+                     help="limit to named destination(s) from outputs.toml")
+    pub.set_defaults(func=cmd_publish)
 
     dsc = sub.add_parser("discover", help="scan for local model runtimes")
     dsc.set_defaults(func=cmd_discover)
