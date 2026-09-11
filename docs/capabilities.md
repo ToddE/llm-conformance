@@ -13,14 +13,15 @@ nav_order: 8
 
 {: .warning }
 **This page predates the current implementation and is being reconciled.**
-Concretely: the `partial` and `inconsistent` result classes documented below
-do not exist in the code (`conformance/outcomes.py`). The implemented
-classes are `pass`, `honest_failure` (as `rejected` / `unsupported_dialect`),
-`silent_failure`, `unrepresentable`, an additional `advisory leak` class not
-described here (a response that violates only a non-enforced schema keyword
-like `maxLength`, kept out of the silent-failure rate), and `inconclusive`.
-Treat the [Methodology](methodology) page as the authoritative outcome
-taxonomy until this page is updated to match it.
+The `partial` result class documented below does not yet exist in the code
+(see its own "Not implemented" note further down for exactly what building it
+would require). `inconsistent` WAS in the same state as of 2026-09-11 and has
+since been implemented (`conformance.outcomes.cell_verdict()`) -- its section
+below now says so. An additional `advisory leak` class not described in this
+page's own vocabulary also exists in the code: a response that violates only
+a non-enforced schema keyword like `maxLength`, kept out of the silent-failure
+rate. Treat the [Methodology](methodology) page as the authoritative outcome
+taxonomy for anything this page has not yet caught up to.
 
 This document defines how LLM Conformance describes, tests, and reports AI
 deployment capabilities.
@@ -384,6 +385,18 @@ Example:
 - Strict enforcement: not demonstrated
 ```
 
+**Not implemented.** This needs a different result shape than the harness
+currently produces: a per-constraint vector (one verdict per schema keyword,
+as in the example above) rather than one collapsed verdict per trial.
+`conformance.jsonschema.validate()` already returns the list of individual
+violations that a `partial` classification would be built from, and the
+structural-vs-advisory keyword tiering added to fix a `maxLength`
+false-positive is a step toward this, but it still only feeds a binary
+decision today. Building `partial` properly means changing what
+`check_structured_payload()` and `check_tool_arguments()` in
+`conformance/adapters/base.py` return, which changes every stored result's
+shape, not just adding a new outcome value alongside the existing ones.
+
 ### `inconsistent`
 
 Repeated trials produce materially different results under the same recorded
@@ -397,6 +410,15 @@ Example:
 ```
 
 An inconsistent result must not be treated as strict support.
+
+**Implemented.** `conformance.outcomes.cell_verdict()` aggregates a
+deployment+capability cell's conclusive-trial conformance classes: unanimous
+agreement returns that class, any split returns `inconsistent`. Surfaced in
+the report's `Rates` section (cell level), the `INCONSISTENT cells` list, and
+`summary_dict()["inconsistent_cells"]`. Confirmed against real evidence: an
+Anthropic `claude-sonnet-5` structured-output cell where 3 of 5 trials
+exceeded `maxLength` and 2 did not reports as `inconsistent` rather than as
+either a clean pass or a clean failure.
 
 ### `inconclusive`
 

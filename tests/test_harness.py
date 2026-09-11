@@ -53,6 +53,32 @@ CASES = [
 ]
 
 
+CELL_VERDICT_CASES = [
+    # (label, conformance_classes across a cell's conclusive trials, expected verdict)
+    ("unanimous honored",     [O.CONF_HONORED] * 5,                      O.CONF_HONORED),
+    ("unanimous silent",      [O.CONF_SILENT] * 5,                       O.CONF_SILENT),
+    ("unanimous advisory",    [O.CONF_ADVISORY] * 3,                     O.CONF_ADVISORY),
+    ("real anthropic split",  [O.CONF_ADVISORY]*3 + [O.CONF_HONORED]*2,  O.CELL_INCONSISTENT),
+    ("4 pass, 1 silent",      [O.CONF_HONORED]*4 + [O.CONF_SILENT],      O.CELL_INCONSISTENT),
+    ("three-way split",       [O.CONF_HONORED, O.CONF_SILENT, O.CONF_ADVISORY], O.CELL_INCONSISTENT),
+    ("single trial",          [O.CONF_HONORED],                          O.CONF_HONORED),
+    ("no conclusive trials",  [],                                        O.CONF_INCONCLUSIVE),
+]
+
+
+def run_cell_verdict_cases() -> tuple[int, int]:
+    passed = failed = 0
+    for label, classes, want in CELL_VERDICT_CASES:
+        got = O.cell_verdict(classes)
+        if got == want:
+            passed += 1
+            print(f"  PASS  {label:<22} -> {got}")
+        else:
+            failed += 1
+            print(f"  FAIL  {label:<22} -> got {got}, want {want}")
+    return passed, failed
+
+
 def run() -> int:
     server, base = start()
     passed = failed = 0
@@ -89,7 +115,12 @@ def run() -> int:
     finally:
         server.shutdown()
 
-    print(f"\n{passed} passed, {failed} failed, {len(CASES)} total")
+    print()
+    cv_passed, cv_failed = run_cell_verdict_cases()
+    passed += cv_passed
+    failed += cv_failed
+
+    print(f"\n{passed} passed, {failed} failed, {len(CASES) + len(CELL_VERDICT_CASES)} total")
     return 1 if failed else 0
 
 

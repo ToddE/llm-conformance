@@ -257,7 +257,7 @@ def conformance_class(outcome: str) -> str:
 # wrong, and an inconsistent result must not be treated as strict support.
 #
 # This lives here rather than as a sixth value alongside PASS/FAIL_VIOLATED/
-# etc. in the outcome enum, because it isn't a property of one trial. It's an
+# etc. in the outcome enum, because it is not a property of one trial. It is an
 # aggregate over a cell's trials, computed after the fact -- the same
 # relationship conformance_class() already has to a raw outcome string.
 

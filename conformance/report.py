@@ -43,9 +43,16 @@ _CONF_MARK = {
     O.CONF_UNREPRESENTABLE: (MAG, "UNREPRESENTABLE"),
     O.CONF_HONEST: (YELLOW, "honest refusal"),
     O.CONF_INCONCLUSIVE: (DIM, "inconclusive"),
+    # Bold red rather than a new color: this is not a fifth, milder category
+    # alongside the others above. It means the trials disagreed with each
+    # other, so none of the single-word labels above is an honest summary of
+    # what happened -- an inconsistent cell must not be read as either a
+    # clean pass or a clean failure.
+    O.CELL_INCONSISTENT: (BOLD + RED, "INCONSISTENT"),
 }
-_CONF_SEV = {O.CONF_SILENT: 0, O.CONF_UNREPRESENTABLE: 1, O.CONF_HONEST: 2,
-             O.CONF_ADVISORY: 3, O.CONF_HONORED: 4, O.CONF_INCONCLUSIVE: 5}
+_CONF_SEV = {O.CELL_INCONSISTENT: -1, O.CONF_SILENT: 0, O.CONF_UNREPRESENTABLE: 1,
+             O.CONF_HONEST: 2, O.CONF_ADVISORY: 3, O.CONF_HONORED: 4,
+             O.CONF_INCONCLUSIVE: 5}
 
 KILL_THRESHOLD = 0.02   # silent-failure rate below this => P1 false
 
@@ -110,8 +117,14 @@ def render(results: list[dict[str, Any]], color: bool = True) -> str:
             counts = Counter(O.conformance_class(r["outcome"]) for r in conclusive)
             declared = rs[0]["declared"]
             add(c(DIM, f"   mechanism: {rs[0]['mechanism']}"))
-            worst = min(counts, key=lambda k: _CONF_SEV.get(k, 9)) if counts else O.CONF_INCONCLUSIVE
-            col, lab = _CONF_MARK[worst]
+            # The cell's real verdict, not "whichever trial was worst." A cell
+            # where 4/5 trials passed and 1/5 was silent is neither a clean
+            # pass nor a clean silent failure -- it is its own thing, and
+            # showing it as flatly "SILENT FAILURE" would overstate how
+            # reliably it fails just as showing it as "HONORED" would
+            # understate the risk.
+            verdict = O.cell_verdict(list(counts)) if counts else O.CONF_INCONCLUSIVE
+            col, lab = _CONF_MARK[verdict]
             breakdown = ", ".join(f"{k}={v}" for k, v in counts.most_common()) or "no conclusive trials"
             dtxt = {True: "true", False: "false", None: "NO REGISTRY ROW"}.get(declared, str(declared))
             add(f"   {capability:<19} declared={dtxt:<15} "
@@ -173,11 +186,15 @@ def render(results: list[dict[str, Any]], color: bool = True) -> str:
     silent_cells = sum(1 for v in cell_conf.values() if O.CONF_SILENT in v)
     dep_sil = {k[0] for k, v in cell_conf.items() if O.CONF_SILENT in v}
     all_deps = {k[0] for k in cell_conf}
+    cell_verdicts = {k: O.cell_verdict(list(v)) for k, v in cell_conf.items()}
+    inconsistent_cells = {k for k, v in cell_verdicts.items() if v == O.CELL_INCONSISTENT}
     add("")
     add(c(BOLD, "   CELL level") + c(DIM, "  (deployment x capability; fails if ANY trial failed)"))
     add(f"     {c(RED,'≥1 silent failure')}       {_pct(silent_cells, n_cells2)}")
     add(f"     {c(MAG,'unrepresentable')}         "
         f"{_pct(sum(1 for v in cell_conf.values() if O.CONF_UNREPRESENTABLE in v), n_cells2)}")
+    add(f"     {c(BOLD + RED,'inconsistent')}         {_pct(len(inconsistent_cells), n_cells2)}  "
+        + c(DIM, "trials disagreed with each other; not strict support"))
     add(c(BOLD, "   DEPLOYMENT level"))
     add(f"     {c(RED,'≥1 silent failure')}       {_pct(len(dep_sil), len(all_deps))}")
 
@@ -218,14 +235,15 @@ def render(results: list[dict[str, Any]], color: bool = True) -> str:
         for reason, count in Counter(r["outcome"] for r in incon).most_common():
             add(f"   {reason:<26} {count}")
 
-    # ── partial-conformance detail ──────────────────────────────────────────
-    partial = {k: v for k, v in cell_conf.items() if len(v) > 1}
-    if partial:
+    # ── inconsistent cells ───────────────────────────────────────────────────
+    # Built from the same cell_verdicts computed for the rate above, not a
+    # separate ad hoc pass, so this list and that count can never drift apart.
+    if inconsistent_cells:
         add("")
-        add(c(BOLD, "── Non-deterministic cells ──"))
-        add(c(DIM, "   same deployment+capability produced different outcomes across trials;"))
-        add(c(DIM, "   this is why single-shot results are inadmissible"))
-        for (did, cap), states in partial.items():
+        add(c(BOLD + RED, "── INCONSISTENT cells ──"))
+        add(c(DIM, "   same deployment+capability produced different outcomes across trials."))
+        add(c(DIM, "   Must not be read as either a clean pass or a clean silent failure."))
+        for did, cap in sorted(inconsistent_cells, key=lambda k: (labels.get(k[0], k[0]), k[1])):
             rs = cells[(did, cap)]
             cnt = Counter(O.conformance_class(r["outcome"]) for r in rs
                           if r["outcome"] not in O.INCONCLUSIVE)
@@ -265,6 +283,9 @@ def summary_dict(results: list[dict[str, Any]]) -> dict[str, Any]:
     cell_state: dict[tuple, set] = defaultdict(set)
     for r in conclusive:
         cell_state[_key(r)].add(O.conformance_class(r["outcome"]))
+    cell_verdicts = {k: O.cell_verdict(list(v)) for k, v in cell_state.items()}
+    inconsistent = [{"deployment_id": k[0], "capability": k[1]}
+                    for k, v in cell_verdicts.items() if v == O.CELL_INCONSISTENT]
     n = len(conclusive)
     return {
         "trials_total": len(results),
@@ -282,6 +303,12 @@ def summary_dict(results: list[dict[str, Any]]) -> dict[str, Any]:
         "conformance": dict(conf),
         "silent_rate_trial_level": (conf.get(O.CONF_SILENT, 0) / n) if n else None,
         "cell_level_silent": sum(1 for v in cell_state.values() if O.CONF_SILENT in v),
+        # Cell verdict is CELL_INCONSISTENT when a cell's conclusive trials
+        # disagree with each other -- see outcomes.cell_verdict(). Reported
+        # here, in addition to being printed, so readjudicate and any external consumer
+        # can see it without re-deriving it from raw trials.
+        "cell_level_inconsistent": len(inconsistent),
+        "inconsistent_cells": inconsistent,
         "trials_with_no_registry_row": sum(1 for r in conclusive if r["declared"] is None),
     }
 
